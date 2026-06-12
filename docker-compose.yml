@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: supportai-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: supportai
+      POSTGRES_PASSWORD: supportai_dev
+      POSTGRES_DB: supportai
+    ports:
+      - "5432:5432"
+    volumes:
+      - supportai_pgdata:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+ 
+volumes:
+  supportai_pgdata:

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedSys ERP Hospitalar — Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #333;
+      line-height: 1.6;
+    }
+    h1 { color: #6d4aff; }
+    .badge {
+      display: inline-block;
+      background: #f0ecff;
+      color: #6d4aff;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .card {
+      border: 1px solid #e3e3e8;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 16px 0;
+      background: #fafafa;
+    }
+  </style>
+</head>
+<body>
+  <span class="badge">DEMO — Site fictício do cliente (ISV)</span>
+  <h1>MedSys ERP Hospitalar</h1>
+  <p>
+    Esta página simula o sistema de um cliente (ISV) que integrou o
+    SupportAI. O widget de chat no canto da tela é o
+    <code>&lt;assistant-ai&gt;</code> — o "especialista virtual" embedado.
+  </p>
+
+  <div class="card">
+    <h3>Experimente perguntar:</h3>
+    <ul>
+      <li>"Se o paciente faltar 3 vezes em 90 dias, ele fica bloqueado de agendar?"</li>
+      <li>"O que é uma glosa técnica e qual o prazo para recurso?"</li>
+      <li>"Como funciona o bloqueio de usuário após tentativas de login erradas?"</li>
+      <li>"Posso unificar dois cadastros de paciente duplicados?"</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Módulo de Pacientes (simulado)</h3>
+    <p>Aqui ficaria a tela real do sistema do ISV — cadastro de pacientes, agenda, etc.</p>
+  </div>
+
+  <!--
+    INTEGRAÇÃO DO WIDGET — exatamente como um ISV faria no próprio site.
+    Em produção, api-url apontaria para a API publicada (ex: https://api.supportai.dev)
+  -->
+  <script src="./dist/widget.js"></script>
+  <assistant-ai
+    project="erp-hospitalar"
+    api-url="http://localhost:3001"
+    color="#6d4aff"
+    greeting="Olá! Sou o assistente virtual do MedSys. Posso ajudar com dúvidas sobre pacientes, agendamento, faturamento e acessos."
+  ></assistant-ai>
+</body>
+</html>

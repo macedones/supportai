@@ -1,0 +1,14 @@
+{
+  "name": "@supportai/widget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Widget embedavel <assistant-ai> - Web Component standalone, sem dependencias.",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}
