@@ -119,6 +119,21 @@ Edite os dois arquivos e preencha `OPENAI_API_KEY` com sua chave real.
 > ⚠️ Nunca commite arquivos `.env` ou `.env.local` — eles já estão no
 > `.gitignore`.
 
+#### Testando sem custo de API (modo mock)
+
+Se você não tem (ou ainda não configurou) billing na OpenAI, defina em
+ambos os `.env`:
+
+```
+AI_PROVIDER=mock
+```
+
+Nesse modo, embeddings são gerados localmente (feature hashing) e as
+respostas são simuladas, mostrando os trechos recuperados pela busca
+vetorial. Isso valida todo o pipeline (ingestão, banco, API, widget)
+**sem nenhuma chamada externa**. A qualidade semântica da busca e das
+respostas é limitada — para uma demo real, use `AI_PROVIDER=openai`.
+
 ### 3. Processar a documentação de demo (ingestão)
 
 ```bash

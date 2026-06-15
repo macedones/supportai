@@ -203,8 +203,13 @@ async function ingerirDocumento(client, projetoId, caminhoArquivo) {
 }
 
 async function main() {
-  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith("sk-coloque")) {
+  const aiProvider = process.env.AI_PROVIDER || "openai";
+
+  if (aiProvider === "mock") {
+    console.log("AI_PROVIDER=mock — ingestao sem chamadas a OpenAI (embeddings via feature hashing).");
+  } else if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith("sk-coloque")) {
     console.error("ERRO: defina OPENAI_API_KEY no arquivo .env antes de rodar a ingestao.");
+    console.error('Alternativa sem custo: defina AI_PROVIDER=mock no .env para rodar sem OpenAI.');
     process.exit(1);
   }
 

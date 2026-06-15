@@ -26,8 +26,13 @@ if (!projetoSlug || !pergunta) {
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
 async function main() {
-  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith("sk-coloque")) {
+  const aiProvider = process.env.AI_PROVIDER || "openai";
+
+  if (aiProvider === "mock") {
+    console.log("AI_PROVIDER=mock — busca sem chamadas a OpenAI (resposta simulada).\n");
+  } else if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith("sk-coloque")) {
     console.error("ERRO: defina OPENAI_API_KEY no arquivo .env antes de rodar a busca.");
+    console.error('Alternativa sem custo: defina AI_PROVIDER=mock no .env para rodar sem OpenAI.');
     process.exit(1);
   }
 
