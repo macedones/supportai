@@ -14,13 +14,13 @@ que pode ser embedado em qualquer site com uma única tag.
 
 ## Status atual
 
-✅ Schema multi-tenant (PostgreSQL + pgvector)
-✅ Knowledge Engine — ingestão de documentos Markdown, chunking e embeddings
-✅ Copilot Runtime — API de chat com RAG (busca semântica + LLM)
-✅ Widget embedável (`<assistant-ai>`) — Web Component standalone
-✅ Demo funcional: **MedSys ERP Hospitalar** (documentação fictícia)
+Schema multi-tenant (PostgreSQL + pgvector)
+Knowledge Engine — ingestão de documentos Markdown, chunking e embeddings
+Copilot Runtime — API de chat com RAG (busca semântica + LLM)
+Widget embedável (`<assistant-ai>`) — Web Component standalone
+Demo funcional: **MedSys ERP Hospitalar** (documentação fictícia)
 
-🔲 Em andamento: Management Portal, segunda demo (ERP Jurídico)
+Em andamento: Management Portal, segunda demo (ERP Jurídico)
 
 ---
 
@@ -116,7 +116,7 @@ cp apps/api/.env.example apps/api/.env.local
 Edite os dois arquivos e preencha `OPENAI_API_KEY` com sua chave real.
 `DATABASE_URL` já vem correto para o ambiente Docker padrão.
 
-> ⚠️ Nunca commite arquivos `.env` ou `.env.local` — eles já estão no
+> Nunca commite arquivos `.env` ou `.env.local` — eles já estão no
 > `.gitignore`.
 
 #### Testando sem custo de API (modo mock)
