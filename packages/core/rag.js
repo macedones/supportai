@@ -2,65 +2,164 @@
 // Copilot Runtime — Logica central do RAG (reutilizavel)
 //
 // Usado tanto pelo script CLI (search.js) quanto pela API
-// (apps/api/pages/api/chat.js). Mantem a logica de busca +
-// montagem de prompt + chamada ao LLM em um so lugar.
+// (apps/api/pages/api/chat.js).
 //
 // PROVEDOR DE IA (AI_PROVIDER):
-//   "openai" (padrao) — usa a API da OpenAI (embeddings + chat).
-//                        Requer OPENAI_API_KEY com billing ativo.
-//   "mock"            — nao faz nenhuma chamada externa. Util para
-//                        desenvolvimento, testes e onboarding de
-//                        contribuidores sem custo de API.
+//   "openai"  — OpenAI API (embeddings + chat). Requer billing.
+//   "groq"    — Groq API (chat gratuito) + Ollama (embeddings locais).
+//               Requer GROQ_API_KEY e Ollama rodando localmente.
+//   "ollama"  — Tudo local via Ollama (embeddings + chat). Zero custo,
+//               zero dependencia externa. Requer Ollama instalado.
+//   "mock"    — Nenhuma chamada externa. Embeddings via feature hashing,
+//               resposta simulada. Util para CI e onboarding.
 // ============================================================
 
 import OpenAI from "openai";
+import https from "node:https";
+import http from "node:http";
 
-const EMBEDDING_MODEL = "text-embedding-3-small";
-const CHAT_MODEL = "gpt-4o-mini";
 const TOP_K = 4;
 const EMBEDDING_DIMENSIONS = 1536;
 
 const AI_PROVIDER = process.env.AI_PROVIDER || "openai";
 
+// -- Modelos por provedor --
+// Chat
+const CHAT_MODELS = {
+  openai: "gpt-4o-mini",
+  groq: "llama-3.1-8b-instant", // rapido e gratuito
+  ollama: "llama3.2",           // modelo local leve
+};
+
+// Embedding
+const EMBED_MODELS = {
+  openai: "text-embedding-3-small",  // 1536 dimensoes
+  groq: "nomic-embed-text",          // Groq nao suporta embeddings ainda,
+                                      // entao groq usa Ollama para embeddings
+  ollama: "nomic-embed-text",         // 768 dimensoes
+};
+
+// O modelo nomic-embed-text gera vetores de 768 dimensoes,
+// nao 1536. O schema usa VECTOR(1536). Para compatibilidade,
+// o embedding de 768 e "padded" (completado com zeros) ate 1536.
+// Isso funciona porque pgvector compara por distancia de cosseno
+// e os zeros extras nao afetam o resultado (contribuicao zero).
+const OLLAMA_EMBED_DIMENSIONS = 768;
+
+// -- Clientes lazy (criados so quando necessario) --
 let openaiClient = null;
-function getOpenAI() {
+let groqClient = null;
+
+function getOpenAIClient() {
   if (!openaiClient) {
     openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
   return openaiClient;
 }
 
+function getGroqClient() {
+  if (!groqClient) {
+    // O SDK da OpenAI aceita um baseURL diferente — o Groq e compativel
+    // com a interface da OpenAI, entao reutilizamos o mesmo SDK.
+    // E como trocar a tomada: mesma ficha, outra voltagem.
+    groqClient = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: "https://api.groq.com/openai/v1",
+    });
+  }
+  return groqClient;
+}
+
+// URL base do Ollama (padrao: localhost:11434)
+function getOllamaUrl() {
+  return (process.env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
+}
+
+// ============================================================
+// EMBEDDINGS
+// ============================================================
+
 // ------------------------------------------------------------
-// Hash simples (djb2) usado apenas pelo embedding mock.
+// Requisicao HTTP/HTTPS simples (substitui fetch).
+// Usamos os modulos nativos node:http e node:https para evitar
+// dependencia do fetch global (disponivel so no Node 18+) e
+// problemas de escopo causados por imports incorretos.
+// ------------------------------------------------------------
+function httpPost(url, body) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const driver = parsed.protocol === "https:" ? https : http;
+    const data = JSON.stringify(body);
+
+    const req = driver.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+        path: parsed.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(data),
+        },
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (chunk) => (raw += chunk));
+        res.on("end", () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try { resolve(JSON.parse(raw)); }
+            catch (e) { reject(new Error(`JSON invalido: ${raw}`)); }
+          } else {
+            reject(new Error(`HTTP ${res.statusCode}: ${raw}`));
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+// ------------------------------------------------------------
+// Embedding via Ollama usando HTTP nativo.
+// ------------------------------------------------------------
+async function gerarEmbeddingOllama(texto) {
+  const url = `${getOllamaUrl()}/api/embeddings`;
+
+  const dados = await httpPost(url, {
+    model: EMBED_MODELS.ollama,
+    prompt: texto,
+  });
+
+  const vetor = dados.embedding;
+  if (!vetor || !Array.isArray(vetor)) {
+    throw new Error(`Ollama nao retornou embedding. Resposta: ${JSON.stringify(dados)}`);
+  }
+
+  // Padding: completa com zeros ate 1536 (nomic-embed-text gera 768)
+  while (vetor.length < EMBEDDING_DIMENSIONS) vetor.push(0);
+  return vetor;
+}
+
+// ------------------------------------------------------------
+// Hash simples (djb2) — usado apenas pelo modo mock.
 // ------------------------------------------------------------
 function hashString(str) {
   let hash = 5381;
   for (let i = 0; i < str.length; i++) {
     hash = (hash * 33) ^ str.charCodeAt(i);
   }
-  return hash >>> 0; // forca unsigned 32-bit
+  return hash >>> 0;
 }
 
-// ------------------------------------------------------------
-// Embedding "mock" via feature hashing (bag-of-words com hash).
-//
-// Nao usa nenhuma API externa - zero custo. A similaridade
-// resultante reflete sobreposicao de palavras entre textos, NAO
-// significado semantico real (ex: "carro" e "automovel" nao
-// serao considerados parecidos). E suficiente para validar todo
-// o pipeline (chunking, armazenamento, busca vetorial via
-// pgvector, API, widget) sem depender de credito na OpenAI.
-//
-// Para qualidade de resposta real, use AI_PROVIDER=openai.
-// ------------------------------------------------------------
 export function gerarEmbeddingMock(texto) {
   const vetor = new Array(EMBEDDING_DIMENSIONS).fill(0);
-
   const palavras =
     texto
       .toLowerCase()
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // remove acentos
+      .replace(/[\u0300-\u036f]/g, "")
       .match(/[a-z0-9]+/g) || [];
 
   for (const palavra of palavras) {
@@ -70,29 +169,39 @@ export function gerarEmbeddingMock(texto) {
     vetor[indice] += sinal;
   }
 
-  // Normalizacao L2 - necessaria para a distancia de cosseno
-  // (usada pelo indice pgvector) funcionar de forma consistente.
   const norma = Math.sqrt(vetor.reduce((soma, v) => soma + v * v, 0)) || 1;
   return vetor.map((v) => v / norma);
 }
 
+// ------------------------------------------------------------
+// gerarEmbedding: roteador central de embeddings.
+// Decide qual provedor usar com base em AI_PROVIDER.
+// ------------------------------------------------------------
 export async function gerarEmbedding(texto) {
-  if (AI_PROVIDER === "mock") {
-    return gerarEmbeddingMock(texto);
-  }
+  switch (AI_PROVIDER) {
+    case "mock":
+      return gerarEmbeddingMock(texto);
 
-  const openai = getOpenAI();
-  const resposta = await openai.embeddings.create({
-    model: EMBEDDING_MODEL,
-    input: texto,
-  });
-  return resposta.data[0].embedding;
+    case "ollama":
+    case "groq": // groq nao suporta embeddings, usa ollama para isso
+      return gerarEmbeddingOllama(texto);
+
+    case "openai":
+    default: {
+      const openai = getOpenAIClient();
+      const resposta = await openai.embeddings.create({
+        model: EMBED_MODELS.openai,
+        input: texto,
+      });
+      return resposta.data[0].embedding;
+    }
+  }
 }
 
-// ------------------------------------------------------------
-// Specialization Engine minimo: monta o system prompt
-// parametrizado pelo projeto + contexto recuperado via RAG.
-// ------------------------------------------------------------
+// ============================================================
+// CHAT / GERACAO DE RESPOSTA
+// ============================================================
+
 export function montarSystemPrompt({ nomeProjeto, personaTom, contexto }) {
   const tomDescricao = {
     tecnico_e_direto: "tecnico, direto e objetivo, sem rodeios",
@@ -116,10 +225,71 @@ ${contexto}`;
 }
 
 // ------------------------------------------------------------
-// Resposta "mock": nao chama nenhum LLM. Apenas formata os
-// trechos recuperados pela busca vetorial, para permitir
-// validar o pipeline de retrieval sem custo de API.
+// chamarLLM: abstrai a chamada ao modelo de chat.
+//
+// OpenAI e Groq usam o mesmo SDK (Groq e compativel com a
+// interface da OpenAI). Ollama tem sua propria API REST, mas
+// tambem oferece um endpoint compativel com OpenAI em /v1,
+// entao reutilizamos o SDK aqui tambem.
 // ------------------------------------------------------------
+async function chamarLLM(systemPrompt, pergunta) {
+  switch (AI_PROVIDER) {
+    case "groq": {
+      const groq = getGroqClient();
+      const resp = await groq.chat.completions.create({
+        model: CHAT_MODELS.groq,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: pergunta },
+        ],
+        temperature: 0.2,
+      });
+      return {
+        texto: resp.choices[0].message.content,
+        tokens: resp.usage?.total_tokens ?? 0,
+      };
+    }
+
+    case "ollama": {
+      // Ollama expoe endpoint compativel com OpenAI em /v1.
+      // Reutilizamos o SDK da OpenAI apontando para localhost.
+      const ollamaClient = new OpenAI({
+        apiKey: "ollama",           // valor exigido pelo SDK, ignorado pelo Ollama
+        baseURL: `${getOllamaUrl()}/v1`,
+      });
+      const resp = await ollamaClient.chat.completions.create({
+        model: CHAT_MODELS.ollama,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: pergunta },
+        ],
+        temperature: 0.2,
+      });
+      return {
+        texto: resp.choices[0].message.content,
+        tokens: resp.usage?.total_tokens ?? 0,
+      };
+    }
+
+    case "openai":
+    default: {
+      const openai = getOpenAIClient();
+      const resp = await openai.chat.completions.create({
+        model: CHAT_MODELS.openai,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: pergunta },
+        ],
+        temperature: 0.2,
+      });
+      return {
+        texto: resp.choices[0].message.content,
+        tokens: resp.usage?.total_tokens ?? 0,
+      };
+    }
+  }
+}
+
 function montarRespostaMock(pergunta, chunks) {
   const trechos = chunks
     .map((row, i) => {
@@ -132,25 +302,22 @@ function montarRespostaMock(pergunta, chunks) {
     })
     .join("\n\n");
 
-  return `[MODO MOCK - nenhuma chamada a OpenAI foi feita]
+  return `[MODO MOCK - nenhuma chamada externa foi feita]
 
 Pergunta: "${pergunta}"
 
-Trechos mais relevantes encontrados na documentacao (busca por
-sobreposicao de palavras, sem compreensao semantica real):
+Trechos recuperados (busca por sobreposicao de palavras):
 
 ${trechos}
 
 ---
-Esta e uma resposta simulada, usada para testar o pipeline de busca (RAG)
-sem custo de API. Para respostas reais geradas por IA, defina
-AI_PROVIDER=openai e configure uma OPENAI_API_KEY valida com billing ativo.`;
+Para respostas reais: defina AI_PROVIDER=groq, ollama ou openai no .env.`;
 }
 
-// ------------------------------------------------------------
-// Busca os TOP_K chunks mais similares a pergunta, dentro de um
-// projeto especifico (isolamento multi-tenant via projeto_id).
-// ------------------------------------------------------------
+// ============================================================
+// PIPELINE COMPLETO
+// ============================================================
+
 export async function buscarChunksRelevantes(client, projetoId, pergunta) {
   const embeddingPergunta = await gerarEmbedding(pergunta);
 
@@ -166,19 +333,12 @@ export async function buscarChunksRelevantes(client, projetoId, pergunta) {
   return resultado.rows;
 }
 
-// ------------------------------------------------------------
-// Funcao principal: recebe a pergunta + dados do projeto,
-// executa o pipeline completo de RAG e retorna a resposta
-// estruturada (texto + fontes + tokens).
-// ------------------------------------------------------------
 export async function responderPergunta(client, projeto, pergunta) {
   const chunks = await buscarChunksRelevantes(client, projeto.id, pergunta);
 
   if (chunks.length === 0) {
     return {
-      resposta:
-        "Ainda nao tenho conhecimento suficiente sobre este sistema para responder. " +
-        "Nenhum documento foi processado para este projeto.",
+      resposta: "Nenhum documento foi processado para este projeto.",
       fontes: [],
       tokens_usados: 0,
     };
@@ -208,19 +368,11 @@ export async function responderPergunta(client, projeto, pergunta) {
     contexto,
   });
 
-  const openai = getOpenAI();
-  const resposta = await openai.chat.completions.create({
-    model: CHAT_MODEL,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: pergunta },
-    ],
-    temperature: 0.2,
-  });
+  const { texto, tokens } = await chamarLLM(systemPrompt, pergunta);
 
   return {
-    resposta: resposta.choices[0].message.content,
+    resposta: texto,
     fontes,
-    tokens_usados: resposta.usage.total_tokens,
+    tokens_usados: tokens,
   };
 }

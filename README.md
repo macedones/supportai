@@ -90,7 +90,27 @@ supportai/
 
 - Node.js 20+
 - Docker + Docker Compose
-- Conta na OpenAI com billing ativo ([platform.openai.com](https://platform.openai.com))
+- Um provedor de IA (escolha um — veja abaixo)
+
+### Provedores de IA suportados
+
+O projeto suporta quatro provedores, configurados pela variável `AI_PROVIDER`:
+
+| Provedor | Chat | Embeddings | Custo | Requisito |
+|---|---|---|---|---|
+| `groq` (**recomendado**) | Groq API (Llama 3.1) | Ollama local | Gratuito | Conta em console.groq.com + Ollama |
+| `ollama` | Ollama local (Llama 3.2) | Ollama local | Zero | Ollama instalado |
+| `openai` | OpenAI (GPT-4o mini) | OpenAI | Pago | Billing ativo |
+| `mock` | Simulado | Feature hashing | Zero | Nada |
+
+**Configuração recomendada (Groq + Ollama):**
+
+1. Crie conta gratuita em [console.groq.com](https://console.groq.com) e gere uma API Key
+2. Instale o [Ollama](https://ollama.com) e baixe os modelos:
+```bash
+ollama pull nomic-embed-text   # modelo de embeddings (~270MB)
+ollama pull llama3.2            # modelo de chat leve (~2GB, opcional se usar groq)
+```
 
 ### 1. Subir o banco de dados
 
@@ -103,8 +123,6 @@ schema (`sql/01_schema.sql`) aplicado automaticamente.
 
 ### 2. Configurar variáveis de ambiente
 
-Existem dois `.env` separados (cada parte do projeto lê o seu):
-
 ```bash
 # Knowledge Engine
 cp .env.example packages/core/.env
@@ -113,8 +131,9 @@ cp .env.example packages/core/.env
 cp apps/api/.env.example apps/api/.env.local
 ```
 
-Edite os dois arquivos e preencha `OPENAI_API_KEY` com sua chave real.
-`DATABASE_URL` já vem correto para o ambiente Docker padrão.
+Edite os dois arquivos. O `.env.example` já contém comentários explicando
+cada opção. Para o modo Groq (recomendado), preencha `GROQ_API_KEY`.
+
 
 > Nunca commite arquivos `.env` ou `.env.local` — eles já estão no
 > `.gitignore`.
@@ -133,6 +152,8 @@ respostas são simuladas, mostrando os trechos recuperados pela busca
 vetorial. Isso valida todo o pipeline (ingestão, banco, API, widget)
 **sem nenhuma chamada externa**. A qualidade semântica da busca e das
 respostas é limitada — para uma demo real, use `AI_PROVIDER=openai`.
+
+> Nunca commite arquivos `.env` ou `.env.local` — já estão no `.gitignore`.
 
 ### 3. Processar a documentação de demo (ingestão)
 
@@ -158,6 +179,7 @@ cd apps/api
 npm install
 npm run dev
 ```
+
 
 API disponível em `http://localhost:3001`.
 

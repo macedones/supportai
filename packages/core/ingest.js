@@ -206,11 +206,20 @@ async function main() {
   const aiProvider = process.env.AI_PROVIDER || "openai";
 
   if (aiProvider === "mock") {
-    console.log("AI_PROVIDER=mock — ingestao sem chamadas a OpenAI (embeddings via feature hashing).");
-  } else if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith("sk-coloque")) {
-    console.error("ERRO: defina OPENAI_API_KEY no arquivo .env antes de rodar a ingestao.");
-    console.error('Alternativa sem custo: defina AI_PROVIDER=mock no .env para rodar sem OpenAI.');
-    process.exit(1);
+    console.log("AI_PROVIDER=mock — ingestao sem chamadas externas (embeddings via feature hashing).");
+  } else if (aiProvider === "groq" || aiProvider === "ollama") {
+    const ollamaUrl = process.env.OLLAMA_URL || "http://localhost:11434";
+    console.log(`AI_PROVIDER=${aiProvider} — embeddings via Ollama (${ollamaUrl}).`);
+    if (aiProvider === "groq" && !process.env.GROQ_API_KEY) {
+      console.error("ERRO: defina GROQ_API_KEY no .env para usar AI_PROVIDER=groq.");
+      process.exit(1);
+    }
+  } else if (aiProvider === "openai") {
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith("sk-coloque")) {
+      console.error("ERRO: defina OPENAI_API_KEY no .env para usar AI_PROVIDER=openai.");
+      console.error("Alternativa gratuita: AI_PROVIDER=groq (console.groq.com) ou AI_PROVIDER=ollama.");
+      process.exit(1);
+    }
   }
 
   const pastaAbsoluta = path.resolve(process.cwd(), pastaDocumentos);
@@ -237,7 +246,7 @@ async function main() {
 
     await client.query(`UPDATE projetos SET status = 'ativo' WHERE id = $1`, [projetoId]);
 
-    console.log("\n✅ Ingestao concluida com sucesso.");
+    console.log("\n Ingestao concluida com sucesso.");
     console.log(`Projeto ID: ${projetoId}`);
   } finally {
     client.release();
@@ -246,6 +255,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("\n❌ Erro durante a ingestao:", err.message);
+  console.error("\n❌ Erro durante a ingestao:");
+  console.error(err.stack);
   process.exit(1);
 });
