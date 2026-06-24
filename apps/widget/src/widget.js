@@ -191,6 +191,30 @@ class AssistantAI extends HTMLElement {
         }
         .fontes b { color: #666; }
 
+        .feedback {
+          margin-top: 6px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .feedback-btn {
+          background: none;
+          border: 1px solid #e3e3e8;
+          border-radius: 4px;
+          padding: 2px 6px;
+          cursor: pointer;
+          font-size: 13px;
+          line-height: 1;
+          transition: background 0.1s;
+        }
+        .feedback-btn:hover:not(:disabled) { background: #f0f0f5; }
+        .feedback-btn:disabled { cursor: default; }
+        .feedback-obrigado {
+          font-size: 11px;
+          color: #888;
+          margin-left: 4px;
+        }
+
         .digitando {
           align-self: flex-start;
           font-size: 12px;
@@ -273,7 +297,7 @@ class AssistantAI extends HTMLElement {
     }
   }
 
-  _adicionarMensagem(papel, texto, fontes) {
+  _adicionarMensagem(papel, texto, fontes, mensagemId) {
     const div = document.createElement("div");
     div.className = `msg ${papel}`;
     div.textContent = texto;
@@ -284,6 +308,51 @@ class AssistantAI extends HTMLElement {
       const nomes = [...new Set(fontes.map((f) => f.documento_nome))];
       fontesDiv.innerHTML = `<b>Fontes:</b> ${nomes.join(", ")}`;
       div.appendChild(fontesDiv);
+    }
+
+    // Botoes de feedback (so para respostas do assistente com ID real)
+    if (papel === "assistente" && mensagemId) {
+      const feedbackDiv = document.createElement("div");
+      feedbackDiv.className = "feedback";
+
+      const btnPos = document.createElement("button");
+      btnPos.className = "feedback-btn";
+      btnPos.textContent = "👍";
+      btnPos.title = "Resposta util";
+
+      const btnNeg = document.createElement("button");
+      btnNeg.className = "feedback-btn";
+      btnNeg.textContent = "👎";
+      btnNeg.title = "Resposta nao util";
+
+      const registrarFeedback = async (avaliacao, btnClicado, btnOutro) => {
+        btnClicado.disabled = true;
+        btnOutro.disabled = true;
+        btnClicado.style.opacity = "1";
+        btnOutro.style.opacity = "0.3";
+        feedbackDiv.querySelector(".feedback-obrigado")?.remove();
+
+        try {
+          await fetch(`${this.apiUrl}/api/feedback`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mensagem_id: mensagemId, avaliacao }),
+          });
+          const obrigado = document.createElement("span");
+          obrigado.className = "feedback-obrigado";
+          obrigado.textContent = "Obrigado!";
+          feedbackDiv.appendChild(obrigado);
+        } catch {
+          // Silencioso — feedback nao e critico para o usuario
+        }
+      };
+
+      btnPos.addEventListener("click", () => registrarFeedback("positiva", btnPos, btnNeg));
+      btnNeg.addEventListener("click", () => registrarFeedback("negativa", btnNeg, btnPos));
+
+      feedbackDiv.appendChild(btnPos);
+      feedbackDiv.appendChild(btnNeg);
+      div.appendChild(feedbackDiv);
     }
 
     this._elMensagens.appendChild(div);
@@ -339,7 +408,7 @@ class AssistantAI extends HTMLElement {
         return;
       }
 
-      this._adicionarMensagem("assistente", dados.resposta, dados.fontes);
+      this._adicionarMensagem("assistente", dados.resposta, dados.fontes, dados.mensagem_id);
     } catch (err) {
       this._mostrarDigitando(false);
       this._adicionarMensagem(

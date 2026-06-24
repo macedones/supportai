@@ -285,13 +285,20 @@ export default async function handler(req, res) {
     }
 
     // 5. Salva resposta do assistente
-    await client.query(
+    const msgResult = await client.query(
       `INSERT INTO mensagens (conversa_id, papel, conteudo, fontes_utilizadas, tokens_usados)
-       VALUES ($1, 'assistente', $2, $3, $4)`,
+       VALUES ($1, 'assistente', $2, $3, $4)
+       RETURNING id`,
       [conversaId, respostaTexto, JSON.stringify(fontes), tokensUsados]
     );
 
-    res.status(200).json({ resposta: respostaTexto, fontes, tokens_usados: tokensUsados, conversa_id: conversaId });
+    res.status(200).json({
+      resposta: respostaTexto,
+      fontes,
+      tokens_usados: tokensUsados,
+      conversa_id: conversaId,
+      mensagem_id: msgResult.rows[0].id,   // necessario para o feedback 👍/👎
+    });
   } catch (err) {
     console.error("Erro em /api/chat:", err);
     res.status(500).json({ erro: "Erro interno ao processar a pergunta." });
