@@ -35,13 +35,13 @@ a partir do recebimento do demonstrativo.
 |---|---|
 | Schema multi-tenant (PostgreSQL + pgvector) | Pronto |
 | Knowledge Engine — ingestão de MD, chunking, embeddings | Pronto |
-| Copilot Runtime — API de chat com RAG | Pronto |
+| Copilot Runtime — API de chat com RAG (FastAPI) | Pronto |
 | Widget embedável `<assistant-ai>` — Web Component | Pronto |
 | Multi-provider (Groq, Ollama, OpenAI, Mock) | Pronto |
 | Demo: MedSys ERP Hospitalar | Funcional |
 | Management Portal | Em andamento |
 | Demo: ERP Jurídico | Em andamento |
-| Ingestão de Swagger/OpenAPI (Python) | Fase 2 |
+| Ingestão de Swagger/OpenAPI | Fase 2 |
 
 ---
 
@@ -56,7 +56,7 @@ a partir do recebimento do demonstrativo.
                    │ POST /api/chat
 ┌─────────────────▼────────────────────────┐
 │  Copilot Runtime (API)                    │
-│  apps/api — Next.js API Routes            │
+│  apps/api — FastAPI, porta 3001           │
 │  - Embedding da pergunta                  │
 │  - Busca semântica (pgvector)             │
 │  - Monta prompt especializado (RAG)       │
@@ -73,7 +73,7 @@ a partir do recebimento do demonstrativo.
                    │
 ┌─────────────────┴────────────────────────┐
 │  Knowledge Engine (ingestão offline)      │
-│  packages/core/ingest.js                  │
+│  packages/core/ingest.py                  │
 │  - Lê arquivos .md                        │
 │  - Divide em chunks (~1500 chars)         │
 │  - Gera embeddings (Ollama local)         │
@@ -90,14 +90,22 @@ supportai/
 ├── docker-compose.yml           # Postgres + pgvector (auto-init do schema)
 ├── sql/01_schema.sql            # Schema multi-tenant com pgvector
 ├── packages/core/               # Knowledge Engine + RAG
-│   ├── ingest.js                # Ingestão de documentos
-│   ├── search.js                # Teste de busca via CLI
-│   └── rag.js                   # Lógica RAG multi-provider
+│   ├── db.py                    # Conexão com o Postgres
+│   ├── embeddings.py            # Geração de embeddings multi-provider
+│   ├── rag.py                   # Lógica RAG (busca + chat com LLM)
+│   ├── ingest.py                # Ingestão de documentos
+│   └── search.py                # Teste de busca via CLI
 ├── apps/
-│   ├── api/                     # Copilot Runtime (Next.js, porta 3001)
-│   │   └── pages/api/
-│   │       ├── chat.js          # Endpoint principal
-│   │       └── health.js        # Health check
+│   ├── api/                     # Copilot Runtime (FastAPI, porta 3001)
+│   │   ├── main.py               # App FastAPI, CORS, rotas
+│   │   ├── database.py           # Dependency de conexão com o banco
+│   │   ├── models.py             # Schemas Pydantic
+│   │   ├── rag_service.py        # Orquestra conversa + RAG
+│   │   └── routers/
+│   │       ├── chat.py
+│   │       ├── feedback.py
+│   │       ├── health.py
+│   │       └── metrics.py
 │   └── widget/                  # Widget embedável
 │       ├── src/widget.js        # Web Component <assistant-ai>
 │       ├── build.js             # Build com esbuild
@@ -113,7 +121,8 @@ supportai/
 
 ### Pré-requisitos
 
-- Node.js 20+
+- Python 3.11+
+- Node.js 20+ (apenas para o widget, que roda no navegador)
 - Docker + Docker Compose
 - Um provedor de IA (ver tabela abaixo)
 
@@ -143,41 +152,50 @@ ollama pull nomic-embed-text   # embeddings (~270MB)
 ollama pull llama3.2            # chat local, opcional se usar Groq (~2GB)
 ```
 
-### 3. Configurar variáveis de ambiente
+### 3. Criar o ambiente virtual e instalar dependências
+
+```bash
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+
+pip install -r packages/core/requirements.txt
+pip install -r apps/api/requirements.txt
+```
+
+### 4. Configurar variáveis de ambiente
 
 ```bash
 cp .env.example packages/core/.env
-cp apps/api/.env.example apps/api/.env.local
+cp .env.example apps/api/.env
 ```
 
 Preencha `GROQ_API_KEY` nos dois arquivos. Chave gratuita em [console.groq.com](https://console.groq.com).
 
-Não commite `.env` ou `.env.local` — já estão no `.gitignore`.
+Não commite arquivos `.env` — já estão no `.gitignore`.
 
-### 4. Ingerir a documentação de demo
+### 5. Ingerir a documentação de demo
 
 ```bash
 cd packages/core
-npm install
-node ingest.js erp-hospitalar ../../demo/docs-erp-hospitalar
+python ingest.py erp-hospitalar ../../demo/docs-erp-hospitalar
 ```
 
-### 5. Testar via CLI (opcional)
+### 6. Testar via CLI (opcional)
 
 ```bash
-node search.js erp-hospitalar "o que é uma glosa técnica?"
+python search.py erp-hospitalar "o que é uma glosa técnica?"
 ```
 
-### 6. Subir a API
+### 7. Subir a API
 
 ```bash
 cd apps/api
-npm install
-npm run dev
+uvicorn main:app --reload --port 3001
 # http://localhost:3001
+# Documentação interativa: http://localhost:3001/docs
 ```
 
-### 7. Buildar e testar o widget
+### 8. Buildar e testar o widget
 
 ```bash
 cd apps/widget
@@ -226,18 +244,20 @@ Abra `demo.html` e teste com perguntas como:
 
 **Sem lock-in de provedor.** Groq, Ollama, OpenAI e modo mock são configuráveis por variável de ambiente, sem mudança de código.
 
+**Widget desacoplado do backend.** O widget (`apps/widget`) é um Web Component em JavaScript puro, já que precisa rodar no navegador do site do ISV — o restante da plataforma (Knowledge Engine e API) é 100% Python.
+
 ---
 
 ## Roadmap
 
-| Fase | Objetivo | Stack |
-|---|---|---|
-| 1 — Concluída | Documentação + FAQ + Chat (RAG + widget multi-provider) | JavaScript |
-| 2 | Ingestão de Swagger/OpenAPI | Python |
-| 3 | Tools Runtime — consulta de dados reais via ferramentas | Python |
-| 4 | Action Runtime — execução de ações dentro do software | Python |
-| 5 | Copilot Especializado — especialista como operador do sistema | Python |
-| 6 | White Label Platform | — |
+| Fase | Objetivo |
+|---|---|
+| 1 — Concluída | Documentação + FAQ + Chat (RAG + widget multi-provider) |
+| 2 | Ingestão de Swagger/OpenAPI |
+| 3 | Tools Runtime — consulta de dados reais via ferramentas |
+| 4 | Action Runtime — execução de ações dentro do software |
+| 5 | Copilot Especializado — especialista como operador do sistema |
+| 6 | White Label Platform |
 
 ---
 
