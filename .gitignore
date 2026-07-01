@@ -5,3 +5,8 @@ node_modules/
 .next/
 dist/
 *.log
+
+
+# Python
+__pycache__/
+*.pyc
