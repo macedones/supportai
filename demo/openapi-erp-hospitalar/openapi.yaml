@@ -1,0 +1,206 @@
+openapi: 3.0.3
+info:
+  title: MedSys API
+  version: "1.4.0"
+  description: >
+    API publica do MedSys ERP Hospitalar para integracao de sistemas
+    parceiros com os modulos de Pacientes, Agendamento e Faturamento.
+servers:
+  - url: https://api.medsys.exemplo.com/v1
+
+paths:
+  /pacientes:
+    get:
+      summary: Lista pacientes cadastrados
+      description: >
+        Retorna uma lista paginada de pacientes. Suporta filtro por nome
+        e por CPF.
+      tags: [Pacientes]
+      parameters:
+        - name: nome
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filtra pacientes cujo nome contenha o valor informado.
+        - name: cpf
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filtra pelo CPF exato do paciente (somente numeros).
+        - name: pagina
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Numero da pagina de resultados, comecando em 1.
+      responses:
+        "200":
+          description: Lista de pacientes retornada com sucesso.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Paciente"
+    post:
+      summary: Cadastra um novo paciente
+      description: Cria um registro de paciente no sistema.
+      tags: [Pacientes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PacienteInput"
+      responses:
+        "201":
+          description: Paciente criado com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Paciente"
+        "409":
+          description: Ja existe um paciente cadastrado com esse CPF.
+
+  /pacientes/{id}:
+    get:
+      summary: Busca um paciente pelo ID
+      tags: [Pacientes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Identificador unico do paciente (UUID).
+      responses:
+        "200":
+          description: Paciente encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Paciente"
+        "404":
+          description: Nenhum paciente encontrado com o ID informado.
+
+  /faturamento/glosas:
+    get:
+      summary: Lista glosas registradas
+      description: >
+        Retorna as glosas tecnicas ou administrativas aplicadas por
+        operadoras de saude, incluindo prazo de recurso.
+      tags: [Faturamento]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [aberta, em_recurso, encerrada]
+          description: Filtra glosas pelo status atual.
+      responses:
+        "200":
+          description: Lista de glosas retornada com sucesso.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Glosa"
+
+  /agendamentos:
+    post:
+      summary: Cria um novo agendamento
+      tags: [Agendamento]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgendamentoInput"
+      responses:
+        "201":
+          description: Agendamento criado com sucesso.
+        "422":
+          description: >
+            Paciente bloqueado por excesso de faltas (3 ou mais faltas
+            em um periodo de 90 dias).
+
+components:
+  schemas:
+    Paciente:
+      type: object
+      description: Representa um paciente cadastrado no MedSys.
+      required: [id, nome, cpf]
+      properties:
+        id:
+          type: string
+          description: Identificador unico (UUID) do paciente.
+        nome:
+          type: string
+          description: Nome completo do paciente.
+        cpf:
+          type: string
+          description: CPF do paciente, somente numeros.
+        dataNascimento:
+          type: string
+          description: Data de nascimento no formato AAAA-MM-DD.
+        bloqueado:
+          type: boolean
+          description: Indica se o paciente esta bloqueado para novos agendamentos por excesso de faltas.
+      example:
+        id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        nome: "Maria da Silva"
+        cpf: "12345678900"
+        dataNascimento: "1985-04-12"
+        bloqueado: false
+
+    PacienteInput:
+      type: object
+      required: [nome, cpf]
+      properties:
+        nome:
+          type: string
+        cpf:
+          type: string
+        dataNascimento:
+          type: string
+
+    Glosa:
+      type: object
+      description: >
+        Recusa de pagamento por parte da operadora de saude sobre um
+        procedimento faturado.
+      required: [id, tipo, status]
+      properties:
+        id:
+          type: string
+        tipo:
+          type: string
+          enum: [tecnica, administrativa]
+          description: >
+            "tecnica" questiona a pertinencia clinica do procedimento;
+            "administrativa" refere-se a erros de preenchimento ou
+            documentacao.
+        status:
+          type: string
+          enum: [aberta, em_recurso, encerrada]
+        prazoRecursoDias:
+          type: integer
+          description: Prazo em dias corridos para interpor recurso, a partir do recebimento do demonstrativo (geralmente entre 30 e 90 dias).
+
+    AgendamentoInput:
+      type: object
+      required: [pacienteId, dataHora, profissionalId]
+      properties:
+        pacienteId:
+          type: string
+          description: ID do paciente a ser agendado.
+        profissionalId:
+          type: string
+          description: ID do profissional de saude responsavel pelo atendimento.
+        dataHora:
+          type: string
+          description: Data e hora do agendamento em formato ISO 8601.

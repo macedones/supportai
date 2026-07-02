@@ -1,5 +1,5 @@
 # ============================================================
-# Knowledge Engine — Script de Ingestao
+# Knowledge Engine — Script de Ingestao (.md)
 #
 # O que este script faz:
 # 1. Le todos os arquivos .md de uma pasta de demo (ex: demo/docs-erp-hospitalar)
@@ -15,11 +15,11 @@
 #
 # Exemplo:
 #   python ingest.py erp-hospitalar ../../demo/docs-erp-hospitalar
+#
+# Para ingerir specs Swagger/OpenAPI, veja ingest_openapi.py.
 # ============================================================
 
-import json
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -28,84 +28,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from db import obter_conexao
-from embeddings import gerar_embedding
-
-CHUNK_SIZE = 1500
-CHUNK_OVERLAP = 200
-
-NOMES_PROJETOS = {
-    "erp-hospitalar": "MedSys ERP Hospitalar",
-    "erp-juridico": "JurisSys ERP Juridico",
-}
-
-
-# ------------------------------------------------------------
-# Divide um texto em chunks por paragrafo, respeitando um
-# tamanho maximo, com sobreposicao entre chunks consecutivos.
-# Equivalente a dividirEmChunks() do ingest.js.
-# ------------------------------------------------------------
-def dividir_em_chunks(texto: str) -> list[str]:
-    paragrafos = [p.strip() for p in re.split(r"\n\s*\n", texto) if p.strip()]
-
-    chunks = []
-    atual = ""
-
-    for paragrafo in paragrafos:
-        if len(atual + "\n\n" + paragrafo) > CHUNK_SIZE and len(atual) > 0:
-            chunks.append(atual)
-            # overlap: pega o final do chunk anterior para dar contexto ao proximo
-            overlap_texto = atual[-CHUNK_OVERLAP:]
-            atual = overlap_texto + "\n\n" + paragrafo
-        else:
-            atual = (atual + "\n\n" + paragrafo) if atual else paragrafo
-
-    if atual.strip():
-        chunks.append(atual)
-
-    return chunks
-
-
-def extrair_secao(texto: str) -> str | None:
-    """Equivalente a extrairSecao() do ingest.js."""
-    for linha in texto.split("\n"):
-        match = re.match(r"^#{1,6}\s+(.*)", linha)
-        if match:
-            return match.group(1).strip()
-    return None
-
-
-def obter_ou_criar_organizacao(conexao) -> str:
-    with conexao.cursor() as cursor:
-        cursor.execute("SELECT id FROM organizacoes WHERE nome = %s LIMIT 1", ("Demo",))
-        existente = cursor.fetchone()
-        if existente:
-            return existente["id"]
-
-        cursor.execute(
-            "INSERT INTO organizacoes (nome, plano) VALUES (%s, %s) RETURNING id",
-            ("Demo", "free"),
-        )
-        return cursor.fetchone()["id"]
-
-
-def obter_ou_criar_projeto(conexao, org_id: str, slug: str) -> str:
-    with conexao.cursor() as cursor:
-        cursor.execute("SELECT id FROM projetos WHERE slug = %s LIMIT 1", (slug,))
-        existente = cursor.fetchone()
-        if existente:
-            return existente["id"]
-
-        nome = NOMES_PROJETOS.get(slug, slug)
-
-        cursor.execute(
-            """
-            INSERT INTO projetos (org_id, nome, slug, status, persona_tom, idioma_padrao)
-            VALUES (%s, %s, %s, 'processando', 'tecnico_e_direto', 'pt-BR')
-            RETURNING id
-            """,
-            (org_id, nome, slug),
-        )
-        return cursor.fetchone()["id"]
+from ingest_common import (
+    ativar_projeto,
+    dividir_em_chunks,
+    extrair_secao,
+    finalizar_documento,
+    inserir_chunks_no_documento,
+    obter_ou_criar_documento,
+    obter_ou_criar_organizacao,
+    obter_ou_criar_projeto,
+)
 
 
 def ingerir_documento(conexao, projeto_id: str, caminho_arquivo: Path) -> None:
@@ -113,67 +45,14 @@ def ingerir_documento(conexao, projeto_id: str, caminho_arquivo: Path) -> None:
     print(f"\nProcessando: {nome_arquivo}")
 
     conteudo = caminho_arquivo.read_text(encoding="utf-8")
-    chunks = dividir_em_chunks(conteudo)
-    print(f"  -> {len(chunks)} chunk(s) gerado(s)")
+    textos_chunks = dividir_em_chunks(conteudo)
+    print(f"  -> {len(textos_chunks)} chunk(s) gerado(s)")
 
-    with conexao.cursor() as cursor:
-        # Cria (ou reseta) o registro do documento. Se ja existir,
-        # apaga os chunks antigos para permitir reprocessamento idempotente.
-        cursor.execute(
-            "SELECT id FROM documentos WHERE projeto_id = %s AND nome_arquivo = %s",
-            (projeto_id, nome_arquivo),
-        )
-        documento_existente = cursor.fetchone()
+    chunks = [(texto, extrair_secao(texto)) for texto in textos_chunks]
 
-        if documento_existente:
-            documento_id = documento_existente["id"]
-            cursor.execute("DELETE FROM chunks WHERE documento_id = %s", (documento_id,))
-            cursor.execute(
-                """
-                UPDATE documentos
-                SET status_processamento = 'processando', total_chunks = 0, processado_em = NULL
-                WHERE id = %s
-                """,
-                (documento_id,),
-            )
-        else:
-            cursor.execute(
-                """
-                INSERT INTO documentos (projeto_id, nome_arquivo, tipo, status_processamento)
-                VALUES (%s, %s, 'md', 'processando')
-                RETURNING id
-                """,
-                (projeto_id, nome_arquivo),
-            )
-            documento_id = cursor.fetchone()["id"]
-
-        # Gera embedding e insere cada chunk.
-        for i, texto_chunk in enumerate(chunks):
-            secao = extrair_secao(texto_chunk)
-
-            print(f"  -> embedding chunk {i + 1}/{len(chunks)}...", end="")
-            embedding = gerar_embedding(texto_chunk)
-            print(" ok")
-
-            metadados = {"documento_nome": nome_arquivo, "secao": secao}
-            vetor_textual = f"[{','.join(str(v) for v in embedding)}]"
-
-            cursor.execute(
-                """
-                INSERT INTO chunks (documento_id, projeto_id, conteudo, ordem, embedding, metadados)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (documento_id, projeto_id, texto_chunk, i, vetor_textual, json.dumps(metadados)),
-            )
-
-        cursor.execute(
-            """
-            UPDATE documentos
-            SET status_processamento = 'concluido', total_chunks = %s, processado_em = now()
-            WHERE id = %s
-            """,
-            (len(chunks), documento_id),
-        )
+    documento_id = obter_ou_criar_documento(conexao, projeto_id, nome_arquivo, tipo="md")
+    inserir_chunks_no_documento(conexao, documento_id, projeto_id, nome_arquivo, chunks)
+    finalizar_documento(conexao, documento_id, len(chunks))
 
     conexao.commit()
     print(f"  -> documento \"{nome_arquivo}\" concluido ({len(chunks)} chunks)")
@@ -231,8 +110,7 @@ def main() -> None:
         for arquivo in arquivos:
             ingerir_documento(conexao, projeto_id, arquivo)
 
-        with conexao.cursor() as cursor:
-            cursor.execute("UPDATE projetos SET status = 'ativo' WHERE id = %s", (projeto_id,))
+        ativar_projeto(conexao, projeto_id)
         conexao.commit()
 
         print("\nIngestao concluida com sucesso.")
