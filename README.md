@@ -2,7 +2,7 @@
 
 Plataforma open source para transformar documentação de software em um assistente de suporte embedável. ISVs fornecem seus manuais e FAQs; a plataforma gera um chat especializado que responde com base exclusivamente nesses documentos, citando a fonte de cada informação.
 
-O assistente não usa o conhecimento geral do LLM — responde apenas com o que foi ingerido. Isso diferencia um especialista virtual de um chatbot genérico.
+O assistente não usa o conhecimento geral do LLM, responde apenas com o que foi ingerido. Isso diferencia um especialista virtual de um chatbot genérico.
 
 ---
 
