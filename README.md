@@ -38,10 +38,12 @@ a partir do recebimento do demonstrativo.
 | Copilot Runtime — API de chat com RAG (FastAPI) | Pronto |
 | Widget embedável `<assistant-ai>` — Web Component | Pronto |
 | Multi-provider (Groq, Ollama, OpenAI, Mock) | Pronto |
+| Ingestão de Swagger/OpenAPI | Pronto |
+| Feedback do usuário (👍/👎) no widget | Pronto |
+| Dashboard de métricas (`/dashboard`) | Pronto |
 | Demo: MedSys ERP Hospitalar | Funcional |
 | Management Portal | Em andamento |
 | Demo: ERP Jurídico | Em andamento |
-| Ingestão de Swagger/OpenAPI | Fase 2 |
 
 ---
 
@@ -93,26 +95,31 @@ supportai/
 │   ├── db.py                    # Conexão com o Postgres
 │   ├── embeddings.py            # Geração de embeddings multi-provider
 │   ├── rag.py                   # Lógica RAG (busca + chat com LLM)
-│   ├── ingest.py                # Ingestão de documentos
+│   ├── ingest_common.py         # Funções compartilhadas de ingestão
+│   ├── ingest.py                # Ingestão de documentos .md
+│   ├── ingest_openapi.py        # Ingestão de specs Swagger/OpenAPI
 │   └── search.py                # Teste de busca via CLI
 ├── apps/
 │   ├── api/                     # Copilot Runtime (FastAPI, porta 3001)
-│   │   ├── main.py               # App FastAPI, CORS, rotas
+│   │   ├── main.py               # App FastAPI, CORS, rotas, monta /dashboard
 │   │   ├── database.py           # Dependency de conexão com o banco
 │   │   ├── models.py             # Schemas Pydantic
 │   │   ├── rag_service.py        # Orquestra conversa + RAG
 │   │   └── routers/
 │   │       ├── chat.py
-│   │       ├── feedback.py
+│   │       ├── feedback.py       # Registra avaliação 👍/👎
 │   │       ├── health.py
-│   │       └── metrics.py
-│   └── widget/                  # Widget embedável
-│       ├── src/widget.js        # Web Component <assistant-ai>
-│       ├── build.js             # Build com esbuild
-│       └── demo.html            # Página de demonstração
+│   │       └── metrics.py        # Métricas + dados do dashboard
+│   ├── widget/                   # Widget embedável
+│   │   ├── src/widget.js         # Web Component <assistant-ai>
+│   │   ├── build.js              # Build com esbuild
+│   │   └── demo.html             # Página de demonstração
+│   └── dashboard/                # Dashboard de métricas
+│       └── index.html            # HTML/CSS/JS puro, servido em /dashboard
 └── demo/
-    ├── docs-erp-hospitalar/     # Documentação fictícia (demo ativa)
-    └── docs-erp-juridico/       # Em construção
+    ├── docs-erp-hospitalar/      # Documentação fictícia (demo ativa)
+    ├── openapi-erp-hospitalar/   # Spec OpenAPI da mesma persona
+    └── docs-erp-juridico/        # Em construção
 ```
 
 ---
@@ -234,6 +241,25 @@ Abra `demo.html` e teste com perguntas como:
 
 ---
 
+## Dashboard de métricas
+
+Cada resposta do assistente é registrada com as fontes que usou (ou a ausência delas), e o usuário final pode avaliar qualquer resposta com 👍/👎 direto no widget. O endpoint `GET /api/metrics/{slug}` consolida isso, e `apps/dashboard` é uma página visual (HTML/CSS/JS puros, sem build) que consome esse endpoint.
+
+Com a API rodando, acesse:
+
+```
+http://localhost:3001/dashboard
+```
+
+Informe a URL da API e o slug do projeto. O dashboard mostra:
+
+- **KPIs** — total de conversas, taxa de respostas com fonte citada, taxa de satisfação (👍/👎)
+- **Documentos mais consultados** — quais fontes o RAG mais recupera, indicando o que realmente importa para os usuários
+- **Perguntas mais frequentes** — agrupadas por texto normalizado, para identificar dúvidas recorrentes
+- **Perguntas sem contexto** — a pergunta real do usuário sempre que o assistente respondeu sem citar nenhuma fonte; são os melhores candidatos a lacunas na documentação do ISV
+
+---
+
 ## Decisões de design
 
 **Respostas baseadas exclusivamente em documentação.** O LLM não complementa com conhecimento geral. Se a informação não foi ingerida, o assistente não responde.
@@ -253,7 +279,7 @@ Abra `demo.html` e teste com perguntas como:
 | Fase | Objetivo |
 |---|---|
 | 1 — Concluída | Documentação + FAQ + Chat (RAG + widget multi-provider) |
-| 2 | Ingestão de Swagger/OpenAPI |
+| 2 — Concluída | Ingestão de Swagger/OpenAPI + sistema de avaliação (👍/👎) e dashboard de métricas |
 | 3 | Tools Runtime — consulta de dados reais via ferramentas |
 | 4 | Action Runtime — execução de ações dentro do software |
 | 5 | Copilot Especializado — especialista como operador do sistema |

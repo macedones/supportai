@@ -17,6 +17,8 @@ from models import (
     DocumentoCitado,
     FeedbackMetricas,
     MetricsResponse,
+    PerguntaFrequente,
+    PerguntaSemContexto,
     ProjetoMetricas,
     QualidadeMetricas,
 )
@@ -127,6 +129,59 @@ def metrics(slug: str, conexao=Depends(obter_conexao_dependency)):
         )
         citacoes = cursor.fetchall()
 
+        # 5. Perguntas mais frequentes
+        # Agrupa por texto normalizado (minusculo, espacos colapsados)
+        # para juntar perguntas identicas digitadas com variacao de
+        # espacamento/capitalizacao. Mostra o texto original mais antigo
+        # como representante do grupo.
+        cursor.execute(
+            """
+            SELECT
+                MIN(m.conteudo) AS pergunta,
+                COUNT(*) AS ocorrencias,
+                MAX(m.criado_em) AS ultima_vez
+            FROM conversas c
+            JOIN mensagens m ON m.conversa_id = c.id
+            WHERE c.projeto_id = %s
+              AND m.papel = 'usuario'
+            GROUP BY lower(trim(regexp_replace(m.conteudo, '\\s+', ' ', 'g')))
+            ORDER BY ocorrencias DESC, ultima_vez DESC
+            LIMIT 10
+            """,
+            (projeto["id"],),
+        )
+        frequentes = cursor.fetchall()
+
+        # 6. Perguntas sem contexto (lista real, nao so contagem)
+        # Recupera a pergunta do usuario que imediatamente precedeu
+        # cada resposta do assistente sem nenhuma fonte citada — sao
+        # os melhores candidatos a "buraco na documentacao" do ISV.
+        cursor.execute(
+            """
+            SELECT pergunta, respondido_em
+            FROM (
+                SELECT
+                    LAG(m.conteudo) OVER (PARTITION BY m.conversa_id ORDER BY m.criado_em) AS pergunta,
+                    LAG(m.papel) OVER (PARTITION BY m.conversa_id ORDER BY m.criado_em) AS papel_anterior,
+                    m.criado_em AS respondido_em,
+                    m.papel,
+                    m.tokens_usados,
+                    jsonb_array_length(m.fontes_utilizadas) AS total_fontes
+                FROM conversas c
+                JOIN mensagens m ON m.conversa_id = c.id
+                WHERE c.projeto_id = %s
+            ) sub
+            WHERE papel = 'assistente'
+              AND total_fontes = 0
+              AND tokens_usados > 0
+              AND papel_anterior = 'usuario'
+            ORDER BY respondido_em DESC
+            LIMIT 20
+            """,
+            (projeto["id"],),
+        )
+        sem_contexto = cursor.fetchall()
+
     return MetricsResponse(
         projeto=ProjetoMetricas(
             nome=projeto["nome"],
@@ -150,5 +205,16 @@ def metrics(slug: str, conexao=Depends(obter_conexao_dependency)):
         documentos_mais_citados=[
             DocumentoCitado(documento=row["documento"], vezes_citado=row["vezes_citado"])
             for row in citacoes
+        ],
+        perguntas_frequentes=[
+            PerguntaFrequente(pergunta=row["pergunta"], ocorrencias=row["ocorrencias"])
+            for row in frequentes
+        ],
+        perguntas_sem_contexto=[
+            PerguntaSemContexto(
+                pergunta=row["pergunta"],
+                respondido_em=row["respondido_em"].isoformat(),
+            )
+            for row in sem_contexto
         ],
     )

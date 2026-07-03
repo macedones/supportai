@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SupportAI — Dashboard de Métricas</title>
+<style>
+  :root {
+    --roxo: #6d4aff;
+    --roxo-claro: #f0ecff;
+    --verde: #16a34a;
+    --vermelho: #dc2626;
+    --cinza: #6b7280;
+    --borda: #e3e3e8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+    color: #24242b;
+    background: #fbfbfd;
+  }
+  h1 { color: var(--roxo); margin-bottom: 4px; font-size: 22px; }
+  .subtitulo { color: var(--cinza); font-size: 14px; margin-bottom: 24px; }
+
+  .barra-controle {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--borda);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 24px;
+  }
+  .barra-controle input {
+    flex: 1;
+    min-width: 160px;
+    padding: 8px 10px;
+    border: 1px solid var(--borda);
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .barra-controle button {
+    background: var(--roxo);
+    color: #fff;
+    border: none;
+    padding: 9px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .barra-controle button:hover { opacity: 0.9; }
+  .barra-controle button:disabled { opacity: 0.5; cursor: default; }
+
+  .aviso {
+    display: none;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
+  .aviso.erro { display: block; background: #fef2f2; color: var(--vermelho); border: 1px solid #fecaca; }
+  .aviso.carregando { display: block; background: var(--roxo-claro); color: var(--roxo); }
+
+  #conteudo { display: none; }
+
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .kpi {
+    background: #fff;
+    border: 1px solid var(--borda);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .kpi .valor { font-size: 26px; font-weight: 700; color: #24242b; }
+  .kpi .rotulo { font-size: 12.5px; color: var(--cinza); margin-top: 2px; }
+  .kpi.bom .valor { color: var(--verde); }
+  .kpi.ruim .valor { color: var(--vermelho); }
+
+  section { margin-bottom: 32px; }
+  h2 {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--cinza);
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--borda);
+    padding-bottom: 8px;
+  }
+
+  .barra-item { margin-bottom: 10px; }
+  .barra-item .topo {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13.5px;
+    margin-bottom: 4px;
+  }
+  .barra-item .nome { color: #24242b; }
+  .barra-item .contagem { color: var(--cinza); font-variant-numeric: tabular-nums; }
+  .barra-fundo {
+    background: #eeeef3;
+    border-radius: 5px;
+    height: 8px;
+    overflow: hidden;
+  }
+  .barra-preenchida {
+    background: var(--roxo);
+    height: 100%;
+    border-radius: 5px;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--borda); }
+  th { color: var(--cinza); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+  td.numero { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.data { color: var(--cinza); white-space: nowrap; font-size: 12.5px; }
+
+  .vazio { color: var(--cinza); font-size: 13.5px; padding: 10px 0; }
+  .badge-alerta {
+    display: inline-block;
+    background: #fef2f2;
+    color: var(--vermelho);
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+
+  <h1>SupportAI — Dashboard de Métricas</h1>
+  <p class="subtitulo">
+    Visão do que os usuários estão perguntando ao especialista virtual,
+    o quão bem o RAG está respondendo, e onde a documentação tem lacunas.
+  </p>
+
+  <div class="barra-controle">
+    <input id="input-api-url" type="text" placeholder="URL da API (ex: http://localhost:3001)" />
+    <input id="input-slug" type="text" placeholder="Slug do projeto (ex: erp-hospitalar)" />
+    <button id="btn-carregar">Carregar</button>
+  </div>
+
+  <div id="aviso" class="aviso"></div>
+
+  <div id="conteudo">
+    <div class="kpis" id="kpis"></div>
+
+    <section>
+      <h2>Documentos mais consultados</h2>
+      <div id="docs-mais-citados"></div>
+    </section>
+
+    <section>
+      <h2>Perguntas mais frequentes</h2>
+      <table id="tabela-frequentes">
+        <thead><tr><th>Pergunta</th><th class="numero">Ocorrências</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>
+        Perguntas sem contexto
+        <span class="badge-alerta">possíveis lacunas na documentação</span>
+      </h2>
+      <table id="tabela-sem-contexto">
+        <thead><tr><th>Pergunta</th><th class="data">Quando</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+
+<script>
+  // ==========================================================
+  // Dashboard de metricas — pagina standalone, sem dependencias
+  // externas (mesmo espirito do widget.js: HTML/CSS/JS puros).
+  //
+  // Consome GET /api/metrics/{slug} e renderiza:
+  // - KPIs (conversas, cobertura do RAG, satisfacao do usuario)
+  // - Documentos mais citados (barra proporcional)
+  // - Perguntas mais frequentes
+  // - Perguntas sem contexto (lacunas de documentacao)
+  // ==========================================================
+
+  const CHAVE_API_URL = "supportai_dashboard_api_url";
+  const CHAVE_SLUG = "supportai_dashboard_slug";
+
+  const $ = (seletor) => document.querySelector(seletor);
+  const inputApiUrl = $("#input-api-url");
+  const inputSlug = $("#input-slug");
+  const btnCarregar = $("#btn-carregar");
+  const avisoEl = $("#aviso");
+  const conteudoEl = $("#conteudo");
+
+  // Restaura ultimos valores usados
+  inputApiUrl.value = localStorage.getItem(CHAVE_API_URL) || "http://localhost:3001";
+  inputSlug.value = localStorage.getItem(CHAVE_SLUG) || "";
+
+  function mostrarAviso(texto, tipo) {
+    avisoEl.textContent = texto;
+    avisoEl.className = "aviso " + tipo;
+  }
+
+  function esconderAviso() {
+    avisoEl.className = "aviso";
+  }
+
+  function escapeHtml(texto) {
+    const div = document.createElement("div");
+    div.textContent = texto;
+    return div.innerHTML;
+  }
+
+  function formatarData(isoString) {
+    try {
+      const data = new Date(isoString);
+      return data.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+    } catch {
+      return isoString;
+    }
+  }
+
+  function renderizarKpis(dados) {
+    const { conversas, qualidade, feedback } = dados;
+
+    const cards = [
+      { valor: conversas.total, rotulo: "Conversas" },
+      { valor: conversas.total_perguntas, rotulo: "Perguntas recebidas" },
+      {
+        valor: qualidade.taxa_cobertura_pct !== null ? qualidade.taxa_cobertura_pct + "%" : "—",
+        rotulo: "Respostas com fonte citada",
+        classe: qualidade.taxa_cobertura_pct === null ? "" : qualidade.taxa_cobertura_pct >= 80 ? "bom" : qualidade.taxa_cobertura_pct < 50 ? "ruim" : "",
+      },
+      {
+        valor: feedback.taxa_satisfacao_pct !== null ? feedback.taxa_satisfacao_pct + "%" : "—",
+        rotulo: `Satisfação (👍 ${feedback.positivas} / 👎 ${feedback.negativas})`,
+        classe: feedback.taxa_satisfacao_pct === null ? "" : feedback.taxa_satisfacao_pct >= 80 ? "bom" : feedback.taxa_satisfacao_pct < 50 ? "ruim" : "",
+      },
+    ];
+
+    $("#kpis").innerHTML = cards
+      .map(
+        (c) => `
+        <div class="kpi ${c.classe || ""}">
+          <div class="valor">${c.valor}</div>
+          <div class="rotulo">${c.rotulo}</div>
+        </div>`
+      )
+      .join("");
+  }
+
+  function renderizarDocumentosMaisCitados(lista) {
+    const container = $("#docs-mais-citados");
+    if (!lista.length) {
+      container.innerHTML = '<div class="vazio">Nenhuma fonte citada ainda.</div>';
+      return;
+    }
+    const max = Math.max(...lista.map((d) => d.vezes_citado));
+    container.innerHTML = lista
+      .map(
+        (d) => `
+        <div class="barra-item">
+          <div class="topo">
+            <span class="nome">${escapeHtml(d.documento)}</span>
+            <span class="contagem">${d.vezes_citado}</span>
+          </div>
+          <div class="barra-fundo">
+            <div class="barra-preenchida" style="width:${(d.vezes_citado / max) * 100}%"></div>
+          </div>
+        </div>`
+      )
+      .join("");
+  }
+
+  function renderizarPerguntasFrequentes(lista) {
+    const corpo = $("#tabela-frequentes tbody");
+    if (!lista.length) {
+      corpo.innerHTML = '<tr><td colspan="2" class="vazio">Ainda sem perguntas suficientes.</td></tr>';
+      return;
+    }
+    corpo.innerHTML = lista
+      .map(
+        (p) => `<tr><td>${escapeHtml(p.pergunta)}</td><td class="numero">${p.ocorrencias}</td></tr>`
+      )
+      .join("");
+  }
+
+  function renderizarPerguntasSemContexto(lista) {
+    const corpo = $("#tabela-sem-contexto tbody");
+    if (!lista.length) {
+      corpo.innerHTML = '<tr><td colspan="2" class="vazio">Nenhuma resposta sem fonte registrada. 🎉</td></tr>';
+      return;
+    }
+    corpo.innerHTML = lista
+      .map(
+        (p) => `<tr><td>${escapeHtml(p.pergunta)}</td><td class="data">${formatarData(p.respondido_em)}</td></tr>`
+      )
+      .join("");
+  }
+
+  async function carregar() {
+    const apiUrl = inputApiUrl.value.trim().replace(/\/$/, "");
+    const slug = inputSlug.value.trim();
+
+    if (!apiUrl || !slug) {
+      mostrarAviso("Preencha a URL da API e o slug do projeto.", "erro");
+      return;
+    }
+
+    localStorage.setItem(CHAVE_API_URL, apiUrl);
+    localStorage.setItem(CHAVE_SLUG, slug);
+
+    btnCarregar.disabled = true;
+    conteudoEl.style.display = "none";
+    mostrarAviso("Carregando métricas...", "carregando");
+
+    try {
+      const resposta = await fetch(`${apiUrl}/api/metrics/${encodeURIComponent(slug)}`);
+
+      if (!resposta.ok) {
+        const erro = await resposta.json().catch(() => ({}));
+        throw new Error(erro.detail || `Erro ${resposta.status} ao buscar métricas.`);
+      }
+
+      const dados = await resposta.json();
+
+      renderizarKpis(dados);
+      renderizarDocumentosMaisCitados(dados.documentos_mais_citados);
+      renderizarPerguntasFrequentes(dados.perguntas_frequentes);
+      renderizarPerguntasSemContexto(dados.perguntas_sem_contexto);
+
+      esconderAviso();
+      conteudoEl.style.display = "block";
+    } catch (erro) {
+      mostrarAviso(erro.message || "Erro ao carregar métricas.", "erro");
+    } finally {
+      btnCarregar.disabled = false;
+    }
+  }
+
+  btnCarregar.addEventListener("click", carregar);
+  inputSlug.addEventListener("keydown", (e) => { if (e.key === "Enter") carregar(); });
+  inputApiUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") carregar(); });
+
+  // Carrega automaticamente se ja houver slug salvo de uma visita anterior
+  if (inputSlug.value) {
+    carregar();
+  }
+</script>
+</body>
+</html>

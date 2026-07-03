@@ -89,12 +89,24 @@ class DocumentoCitado(BaseModel):
     vezes_citado: int
 
 
+class PerguntaFrequente(BaseModel):
+    pergunta: str
+    ocorrencias: int
+
+
+class PerguntaSemContexto(BaseModel):
+    pergunta: str
+    respondido_em: str
+
+
 class MetricsResponse(BaseModel):
     projeto: ProjetoMetricas
     conversas: ConversasMetricas
     qualidade: QualidadeMetricas
     feedback: FeedbackMetricas
     documentos_mais_citados: list[DocumentoCitado] = Field(default_factory=list)
+    perguntas_frequentes: list[PerguntaFrequente] = Field(default_factory=list)
+    perguntas_sem_contexto: list[PerguntaSemContexto] = Field(default_factory=list)
 
 
 # ---------- erros ----------

@@ -10,12 +10,15 @@
 #   uvicorn main:app --reload --port 3001
 # ============================================================
 
+import os
+
 from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from routers import chat, feedback, health, metrics
 
@@ -43,6 +46,13 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(feedback.router, prefix="/api")
 app.include_router(metrics.router, prefix="/api")
 
+# Dashboard de metricas (apps/dashboard/index.html) — HTML/CSS/JS
+# puro, sem build step, servido como estatico direto pela propria
+# API. Acesse em http://localhost:3001/dashboard
+DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
+if os.path.isdir(DASHBOARD_DIR):
+    app.mount("/dashboard", StaticFiles(directory=DASHBOARD_DIR, html=True), name="dashboard")
+
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -62,5 +72,6 @@ def home():
   -H "Content-Type: application/json" \\
   -d '{"project_slug": "erp-hospitalar", "message": "como tratar uma glosa administrativa?"}'</pre>
       <p>Documentacao interativa automatica: <a href="/docs">/docs</a></p>
+      <p>Dashboard de metricas: <a href="/dashboard">/dashboard</a></p>
     </main>
     """
