@@ -37,8 +37,14 @@ a partir do recebimento do demonstrativo.
 | Knowledge Engine — ingestão de MD, chunking, embeddings | Pronto |
 | Copilot Runtime — API de chat com RAG (FastAPI) | Pronto |
 | Widget embedável `<assistant-ai>` — Web Component | Pronto |
-| Multi-provider (Groq, Ollama, OpenAI, Mock) | Pronto |
-| Ingestão de Swagger/OpenAPI | Pronto |
+| Multi-provider de IA (Groq, Ollama, OpenAI, Mock) | Pronto |
+| Arquitetura de conectores (`SourceProvider`) | Pronto |
+| Conector: Markdown | Pronto |
+| Conector: Swagger/OpenAPI | Pronto |
+| Conector: PDF | Pronto |
+| Conector: HTML (arquivo local ou URL) | Pronto |
+| Conector: Repositório Git | Pronto |
+| Conector: Confluence / Notion / GitBook | Interface pronta, integração pendente |
 | Feedback do usuário (👍/👎) no widget | Pronto |
 | Dashboard de métricas (`/dashboard`) | Pronto |
 | Demo: MedSys ERP Hospitalar | Funcional |
@@ -95,9 +101,21 @@ supportai/
 │   ├── db.py                    # Conexão com o Postgres
 │   ├── embeddings.py            # Geração de embeddings multi-provider
 │   ├── rag.py                   # Lógica RAG (busca + chat com LLM)
-│   ├── ingest_common.py         # Funções compartilhadas de ingestão
-│   ├── ingest.py                # Ingestão de documentos .md
-│   ├── ingest_openapi.py        # Ingestão de specs Swagger/OpenAPI
+│   ├── ingest_common.py         # Pipeline genérico de ingestão (ingerir_via_provider)
+│   ├── openapi_parser.py        # Parser puro de specs Swagger/OpenAPI
+│   ├── providers/                # Arquitetura de conectores (SourceProvider)
+│   │   ├── base.py               # Interface SourceProvider + DocumentoExtraido
+│   │   ├── markdown_provider.py
+│   │   ├── openapi_provider.py
+│   │   ├── pdf_provider.py
+│   │   ├── html_provider.py
+│   │   ├── git_provider.py       # Clona repo git e reaproveita MarkdownProvider
+│   │   ├── confluence_provider.py  # Interface pronta, integração pendente
+│   │   ├── notion_provider.py      # Interface pronta, integração pendente
+│   │   └── gitbook_provider.py     # Interface pronta, integração pendente
+│   ├── ingest_source.py         # CLI genérica: funciona com qualquer provider
+│   ├── ingest.py                # CLI de compatibilidade (.md)
+│   ├── ingest_openapi.py        # CLI de compatibilidade (OpenAPI)
 │   └── search.py                # Teste de busca via CLI
 ├── apps/
 │   ├── api/                     # Copilot Runtime (FastAPI, porta 3001)
@@ -121,6 +139,42 @@ supportai/
     ├── openapi-erp-hospitalar/   # Spec OpenAPI da mesma persona
     └── docs-erp-juridico/        # Em construção
 ```
+
+---
+
+## Fontes de ingestão (conectores)
+
+A ingestão segue uma arquitetura de conectores: qualquer fonte de documentação implementa a interface `SourceProvider` (`packages/core/providers/base.py`) e devolve blocos de texto já organizados por seção. O pipeline de RAG — chunking, embeddings, inserção no banco — nunca muda; só muda quem entrega os documentos.
+
+| Conector | Status | Origem aceita |
+|---|---|---|
+| `md` | Pronto | Pasta com arquivos `.md` |
+| `openapi` | Pronto | Arquivo `.json`/`.yaml`/`.yml` (Swagger 2.0 ou OpenAPI 3.x) |
+| `pdf` | Pronto | Arquivo `.pdf` ou pasta com vários |
+| `html` | Pronto | Pasta com `.html`/`.htm`, **ou** uma URL `http(s)://` |
+| `git` | Pronto | `<url-do-repo>` ou `<url-do-repo>#<subpasta>` (clona raso e ingere os `.md` de dentro) |
+| `confluence` | Interface pronta, integração pendente | Requer `CONFLUENCE_API_TOKEN` — ver docstring da classe |
+| `notion` | Interface pronta, integração pendente | Requer `NOTION_API_TOKEN` — ver docstring da classe |
+| `gitbook` | Interface pronta, integração pendente | GitBooks públicos já funcionam via `html`, apontando pra URL |
+
+Para ingerir com qualquer conector:
+
+```bash
+cd packages/core
+python ingest_source.py <provider> <slug-do-projeto> <origem>
+
+# exemplos
+python ingest_source.py md erp-hospitalar ../../demo/docs-erp-hospitalar
+python ingest_source.py openapi medsys-api ../../demo/openapi-erp-hospitalar/openapi.yaml
+python ingest_source.py pdf minha-doc ../../demo/manual.pdf
+python ingest_source.py html minha-doc https://docs.exemplo.com/guia
+python ingest_source.py git meu-projeto "https://github.com/org/repo#docs"
+
+# lista todos os conectores disponíveis
+python ingest_source.py --list
+```
+
+`ingest.py` e `ingest_openapi.py` continuam funcionando exatamente como antes — são atalhos de compatibilidade que usam os conectores `md` e `openapi` por baixo.
 
 ---
 
@@ -279,7 +333,7 @@ Informe a URL da API e o slug do projeto. O dashboard mostra:
 | Fase | Objetivo |
 |---|---|
 | 1 — Concluída | Documentação + FAQ + Chat (RAG + widget multi-provider) |
-| 2 — Concluída | Ingestão de Swagger/OpenAPI + sistema de avaliação (👍/👎) e dashboard de métricas |
+| 2 — Concluída | Ingestão de Swagger/OpenAPI + sistema de avaliação (👍/👎) e dashboard de métricas + arquitetura de conectores (Markdown, PDF, HTML, Git; Confluence/Notion/GitBook com interface pronta) |
 | 3 | Tools Runtime — consulta de dados reais via ferramentas |
 | 4 | Action Runtime — execução de ações dentro do software |
 | 5 | Copilot Especializado — especialista como operador do sistema |

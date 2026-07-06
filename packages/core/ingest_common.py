@@ -9,7 +9,9 @@
 # ============================================================
 
 import json
+import os
 import re
+import sys
 
 from embeddings import gerar_embedding
 
@@ -169,3 +171,70 @@ def finalizar_documento(conexao, documento_id: str, total_chunks: int) -> None:
 def ativar_projeto(conexao, projeto_id: str) -> None:
     with conexao.cursor() as cursor:
         cursor.execute("UPDATE projetos SET status = 'ativo' WHERE id = %s", (projeto_id,))
+
+
+def validar_ai_provider() -> None:
+    """
+    Confere se o AI_PROVIDER configurado no .env tem o necessario pra
+    gerar embeddings (chave de API, etc.) antes de comecar a ingerir
+    — evita descobrir isso so' depois de processar metade dos documentos.
+
+    Estava duplicado em ingest.py e ingest_openapi.py; centralizado
+    aqui pra ser reaproveitado por qualquer CLI de ingestao.
+    """
+    ai_provider = os.environ.get("AI_PROVIDER", "openai")
+
+    if ai_provider == "mock":
+        print("AI_PROVIDER=mock — ingestao sem chamadas externas (embeddings via feature hashing).")
+    elif ai_provider in ("groq", "ollama"):
+        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+        print(f"AI_PROVIDER={ai_provider} — embeddings via Ollama ({ollama_url}).")
+        if ai_provider == "groq" and not os.environ.get("GROQ_API_KEY"):
+            print("ERRO: defina GROQ_API_KEY no .env para usar AI_PROVIDER=groq.")
+            sys.exit(1)
+    elif ai_provider == "openai":
+        chave = os.environ.get("OPENAI_API_KEY", "")
+        if not chave or chave.startswith("sk-coloque"):
+            print("ERRO: defina OPENAI_API_KEY no .env para usar AI_PROVIDER=openai.")
+            print("Alternativa gratuita: AI_PROVIDER=groq (console.groq.com) ou AI_PROVIDER=ollama.")
+            sys.exit(1)
+
+
+def ingerir_via_provider(conexao, projeto_id: str, provider, origem: str) -> list[str]:
+    """
+    Pipeline GENERICO de ingestao — funciona identico para qualquer
+    SourceProvider (MarkdownProvider, OpenAPIProvider, PDFProvider,
+    HTMLProvider, GitRepositoryProvider, ...).
+
+    So' o provider.extrair(origem) muda entre fontes; o resto —
+    chunking, embedding, insercao no banco, idempotencia — e' sempre
+    este mesmo codigo. Essa e' a ideia central da arquitetura de
+    conectores: adicionar uma fonte nova nunca exige tocar aqui.
+
+    Retorna a lista de nomes de arquivo processados.
+    """
+    documentos = provider.extrair(origem)
+    processados = []
+
+    for doc in documentos:
+        print(f"\nProcessando: {doc.nome_arquivo} (via {provider.nome})")
+
+        # Cada bloco do provider pode ser maior que CHUNK_SIZE — nesse
+        # caso e' subdividido aqui, preservando a mesma secao nos
+        # sub-chunks resultantes.
+        chunks: list[tuple[str, str | None]] = []
+        for secao, texto in doc.blocos:
+            for sub_texto in dividir_em_chunks(texto):
+                chunks.append((sub_texto, secao))
+
+        print(f"  -> {len(chunks)} chunk(s) gerado(s)")
+
+        documento_id = obter_ou_criar_documento(conexao, projeto_id, doc.nome_arquivo, tipo=provider.tipo)
+        inserir_chunks_no_documento(conexao, documento_id, projeto_id, doc.nome_arquivo, chunks)
+        finalizar_documento(conexao, documento_id, len(chunks))
+        conexao.commit()
+
+        print(f"  -> \"{doc.nome_arquivo}\" concluido ({len(chunks)} chunks)")
+        processados.append(doc.nome_arquivo)
+
+    return processados
